@@ -147,6 +147,10 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
 .room{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 14px;margin:0 0 8px;flex:none}
 .room summary{cursor:pointer;font:500 14px var(--sans);color:var(--mute)}
 .rp{padding-top:10px}.rp p{margin:0 0 10px;font-size:14px}.rp .btn{margin-bottom:12px}
+.danger{color:#d6455d}
+#s-chat>#pres,#s-chat>#cNote,#s-chat>.stk,#s-chat>.send{flex:none}
+.room[open]{max-height:min(300px,55%);overflow-y:auto}
+.msgs{min-height:120px}
 </style>
 </head>
 <body>
@@ -224,6 +228,7 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
       <details class="room" id="cDet"><summary>🔑 Kode ruang</summary>
         <div class="rp"><p id="cInfo">Kamu belum terhubung dengan pasangan.</p>
           <button class="btn ghost" id="cCopy" type="button" hidden>Salin kode</button>
+          <button class="btn ghost danger" id="cLeave" type="button" hidden>Keluar dari ruang</button>
           <label for="cCode">Masukkan kode dari pasangan</label>
           <div class="row"><input id="cCode" maxlength="9" placeholder="ABCD-2345" autocapitalize="characters" autocomplete="off" style="margin:0"><button class="btn" id="cJoin" type="button" style="width:96px">Gabung</button></div>
           <p class="a-err" id="cErr" role="alert"></p></div></details>
@@ -274,7 +279,8 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
     <label for="nD">Tanggal jadian</label><input type="date" id="nD">
     <button class="btn" id="save">Simpan</button>
     <div id="rBox" hidden style="margin-top:14px"><label for="rCode">Kode ruang (bagikan ke pasanganmu)</label>
-      <div class="row"><input id="rCode" readonly style="margin:0"><button class="btn ghost" id="rCopy" style="width:90px">Salin</button></div></div>
+      <div class="row"><input id="rCode" readonly style="margin:0"><button class="btn ghost" id="rCopy" style="width:90px">Salin</button></div>
+      <button class="btn ghost danger" id="rLeave" type="button" style="margin-top:10px">Keluar dari ruang</button></div>
     <button class="btn ghost" id="rLink" hidden style="margin-top:10px">Hubungkan dengan pasangan</button>
     <p class="a-who" id="aWho"></p>
     <button class="btn ghost" id="logout" type="button">Keluar</button>
@@ -284,7 +290,7 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,sendPasswordResetEmail,updateProfile,GoogleAuthProvider,signInWithPopup,signInWithRedirect,setPersistence,browserLocalPersistence,browserSessionPersistence} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,collection,addDoc,query,orderBy,limit,onSnapshot,arrayUnion,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,collection,addDoc,query,orderBy,limit,onSnapshot,arrayUnion,arrayRemove,deleteField,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 /* Konfigurasi Firebase project-ikky */
 const FIREBASE_CONFIG={apiKey:"AIzaSyBJQtDZn3UcfR6XYtazvmUsDTNrZvA6nSk",authDomain:"project-ikky.firebaseapp.com",projectId:"project-ikky",storageBucket:"project-ikky.firebasestorage.app",messagingSenderId:"995003354908",appId:"1:995003354908:web:7852a5e673164792fcf4d9",measurementId:"G-P8JEV1277P"};
@@ -439,7 +445,7 @@ function startSync(){
 $('cIn').addEventListener('input',function(){if(cid&&Date.now()-lt>2000){lt=Date.now();beat({typ:Date.now()})}});
 
 function fmtCode(c){return c.slice(0,4)+'-'+c.slice(4)}
-function openRoom(c){cid=c;$('msgs').innerHTML='';$('cInfo').textContent='Kode ruangmu: '+fmtCode(c);$('cCopy').hidden=false;try{localStorage.setItem('kita-cid-'+uid,c)}catch(e){}$('rCode').value=fmtCode(c);view('app');startSync()}
+function openRoom(c){cid=c;$('cLeave').hidden=false;$('msgs').innerHTML='';$('cInfo').textContent='Kode ruangmu: '+fmtCode(c);$('cCopy').hidden=false;try{localStorage.setItem('kita-cid-'+uid,c)}catch(e){}$('rCode').value=fmtCode(c);view('app');startSync()}
 function msg(e){var c=(e&&e.code)||'';
   return {'auth/invalid-credential':'Email atau kata sandi salah.','auth/wrong-password':'Email atau kata sandi salah.','auth/user-not-found':'Email atau kata sandi salah.',
   'auth/email-already-in-use':'Email ini sudah terdaftar. Silakan masuk.','auth/weak-password':'Kata sandi terlalu lemah (minimal 8 karakter).','auth/invalid-email':'Format email belum benar.',
@@ -497,11 +503,24 @@ async function joinRoom(raw,errEl,btn){errEl.textContent='';var c=raw.toUpperCas
   btn.disabled=true;
   try{var rf=doc(fs,'couples',c),s=await getDoc(rf);if(!s.exists()){errEl.textContent='Kode tidak ditemukan.';return false}
     var mb=s.data().members||[];
-    if(mb.indexOf(uid)<0){if(mb.length>=2){errEl.textContent='Ruang ini sudah penuh.';return false}await updateDoc(rf,{members:arrayUnion(uid)})}
+    if(mb.indexOf(uid)<0){if(mb.length>=2){errEl.textContent='Ruang ini sudah penuh.';return false}if(mb.length===0){errEl.textContent='Ruang ini sudah tidak aktif.';return false}await updateDoc(rf,{members:arrayUnion(uid)})}
     await setDoc(doc(fs,'users',uid),{coupleId:c},{merge:true});openRoom(c);return true}
   catch(x){errEl.textContent=msg(x);return false}finally{btn.disabled=false}}
 $('pJoin').onclick=function(){joinRoom($('pCode').value,$('pErr'),this)};
 $('cJoin').onclick=function(){joinRoom($('cCode').value,$('cErr'),this).then(function(r){if(r){$('cCode').value='';$('cDet').open=false;toast('Terhubung ke ruang')}})};
+async function leaveRoom(){
+  if(!cid||!uid)return;
+  if(!confirm('Keluar dari ruang ini? Kamu tidak akan lagi melihat obrolan dan data bersama. Data di perangkat ini tetap ada.'))return;
+  var c=cid;
+  try{await updateDoc(doc(fs,'couples',c),{members:arrayRemove(uid)})}catch(x){toast(msg(x));return}
+  try{await setDoc(doc(fs,'users',uid),{coupleId:deleteField()},{merge:true})}catch(x){}
+  stopAll();cid=null;local=[];first=true;unread=0;dot.hidden=true;
+  try{localStorage.removeItem('kita-cid-'+uid);localStorage.setItem('kita-solo','1')}catch(e){}
+  render([]);$('rCode').value='';$('rBox').hidden=true;$('rLink').hidden=false;
+  $('cInfo').textContent='Kamu belum terhubung dengan pasangan.';$('cCopy').hidden=true;$('cLeave').hidden=true;
+  $('cNote').textContent='Mode lokal: pesan hanya tersimpan di perangkat ini.';
+  $('sheet').classList.remove('on');$('cDet').open=false;toast('Kamu sudah keluar dari ruang')}
+$('cLeave').onclick=leaveRoom;$('rLeave').onclick=leaveRoom;
 $('cCopy').onclick=function(){try{navigator.clipboard.writeText($('rCode').value).then(function(){toast('Kode tersalin')})}catch(e){}};
 $('pSolo').onclick=function(){try{localStorage.setItem('kita-solo','1')}catch(e){}view('app')};
 function out(){try{localStorage.removeItem('kita-in');localStorage.removeItem('kita-solo')}catch(e){}signOut(au).then(function(){try{localStorage.removeItem(K)}catch(e){}location.reload()})}
