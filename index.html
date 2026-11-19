@@ -102,7 +102,9 @@ nav button{position:relative}
 
 /* Login & pairing (Firebase) */
 html[data-view="boot"] .app>*{visibility:hidden}
-.auth,.pair{display:none;flex:1;min-height:0;overflow-y:auto;flex-direction:column;justify-content:center;padding:24px 22px}
+.auth,.pair{display:none;flex:1;min-height:0;overflow-y:auto;flex-direction:column;justify-content:flex-start;padding:24px 22px calc(24px + env(safe-area-inset-bottom,0px))}
+.auth>:first-child,.pair>:first-child{margin-top:auto}
+.auth>:last-child,.pair>:last-child{margin-bottom:auto}
 html[data-view="auth"] #auth,html[data-view="pair"] #pair{display:flex}
 html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,html:not([data-view="app"]) .app>nav,html:not([data-view="app"]) .app>.sheet{display:none!important}
 .auth-brand{text-align:center;margin-bottom:20px}
@@ -138,6 +140,13 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
 .h-logo{width:42px;height:42px;border-radius:50%;object-fit:cover;flex:none;border:2px solid var(--card);box-shadow:0 0 0 2px var(--a)}
 .h-logo[hidden]{display:none}
 .sh{display:flex;align-items:center;gap:12px;margin-bottom:14px}.sh h2{margin:0}
+.app *{scrollbar-width:none;-ms-overflow-style:none}
+.app *::-webkit-scrollbar{display:none;width:0;height:0}
+.sheet .box{max-height:100%;overflow-y:auto;padding-bottom:calc(22px + env(safe-area-inset-bottom,0px))}
+@supports(height:100dvh){html,body{height:100dvh}}
+.room{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 14px;margin:0 0 8px;flex:none}
+.room summary{cursor:pointer;font:500 14px var(--sans);color:var(--mute)}
+.rp{padding-top:10px}.rp p{margin:0 0 10px;font-size:14px}.rp .btn{margin-bottom:12px}
 </style>
 </head>
 <body>
@@ -212,6 +221,12 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
         <button class="btn ghost" id="eAdd" style="margin-top:10px">Tambah hitung mundur</button></div>
     </section>
     <section id="s-chat">
+      <details class="room" id="cDet"><summary>🔑 Kode ruang</summary>
+        <div class="rp"><p id="cInfo">Kamu belum terhubung dengan pasangan.</p>
+          <button class="btn ghost" id="cCopy" type="button" hidden>Salin kode</button>
+          <label for="cCode">Masukkan kode dari pasangan</label>
+          <div class="row"><input id="cCode" maxlength="9" placeholder="ABCD-2345" autocapitalize="characters" autocomplete="off" style="margin:0"><button class="btn" id="cJoin" type="button" style="width:96px">Gabung</button></div>
+          <p class="a-err" id="cErr" role="alert"></p></div></details>
       <div class="msgs" id="msgs" aria-live="polite"></div>
       <p id="pres" style="font-size:12px;margin:0 0 2px;color:var(--ok);min-height:16px"></p>
       <p id="cNote" style="color:var(--mute);font-size:12px;margin:0 0 4px"></p>
@@ -424,7 +439,7 @@ function startSync(){
 $('cIn').addEventListener('input',function(){if(cid&&Date.now()-lt>2000){lt=Date.now();beat({typ:Date.now()})}});
 
 function fmtCode(c){return c.slice(0,4)+'-'+c.slice(4)}
-function openRoom(c){cid=c;try{localStorage.setItem('kita-cid-'+uid,c)}catch(e){}$('rCode').value=fmtCode(c);view('app');startSync()}
+function openRoom(c){cid=c;$('msgs').innerHTML='';$('cInfo').textContent='Kode ruangmu: '+fmtCode(c);$('cCopy').hidden=false;try{localStorage.setItem('kita-cid-'+uid,c)}catch(e){}$('rCode').value=fmtCode(c);view('app');startSync()}
 function msg(e){var c=(e&&e.code)||'';
   return {'auth/invalid-credential':'Email atau kata sandi salah.','auth/wrong-password':'Email atau kata sandi salah.','auth/user-not-found':'Email atau kata sandi salah.',
   'auth/email-already-in-use':'Email ini sudah terdaftar. Silakan masuk.','auth/weak-password':'Kata sandi terlalu lemah (minimal 8 karakter).','auth/invalid-email':'Format email belum benar.',
@@ -474,14 +489,20 @@ $('pNew').onclick=async function(){perr('');this.disabled=true;
   catch(x){perr(msg(x))}this.disabled=false};
 $('pCopy').onclick=function(){try{navigator.clipboard.writeText(fmtCode(pendingCid)).then(function(){toast('Kode tersalin')})}catch(e){}};
 $('pGo').onclick=function(){if(pendingCid)openRoom(pendingCid)};
-$('pJoin').onclick=async function(){perr('');var c=$('pCode').value.toUpperCase().replace(/[^A-Z0-9]/g,'');
-  if(c.length!==8){perr('Kode terdiri dari 8 huruf/angka.');return}
-  this.disabled=true;
-  try{var rf=doc(fs,'couples',c),s=await getDoc(rf);if(!s.exists()){perr('Kode tidak ditemukan.');return}
+async function joinRoom(raw,errEl,btn){errEl.textContent='';var c=raw.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(!ok||!uid){errEl.textContent='Masuk dulu untuk bergabung.';return false}
+  if(c.length!==8){errEl.textContent='Kode terdiri dari 8 huruf/angka.';return false}
+  if(c===cid){errEl.textContent='Kamu sudah berada di ruang ini.';return false}
+  if(cid&&!confirm('Pindah ke ruang baru? Obrolan dan data akan memakai ruang itu.'))return false;
+  btn.disabled=true;
+  try{var rf=doc(fs,'couples',c),s=await getDoc(rf);if(!s.exists()){errEl.textContent='Kode tidak ditemukan.';return false}
     var mb=s.data().members||[];
-    if(mb.indexOf(uid)<0){if(mb.length>=2){perr('Ruang ini sudah penuh.');return}await updateDoc(rf,{members:arrayUnion(uid)})}
-    await setDoc(doc(fs,'users',uid),{coupleId:c},{merge:true});openRoom(c)}
-  catch(x){perr(msg(x))}finally{this.disabled=false}};
+    if(mb.indexOf(uid)<0){if(mb.length>=2){errEl.textContent='Ruang ini sudah penuh.';return false}await updateDoc(rf,{members:arrayUnion(uid)})}
+    await setDoc(doc(fs,'users',uid),{coupleId:c},{merge:true});openRoom(c);return true}
+  catch(x){errEl.textContent=msg(x);return false}finally{btn.disabled=false}}
+$('pJoin').onclick=function(){joinRoom($('pCode').value,$('pErr'),this)};
+$('cJoin').onclick=function(){joinRoom($('cCode').value,$('cErr'),this).then(function(r){if(r){$('cCode').value='';$('cDet').open=false;toast('Terhubung ke ruang')}})};
+$('cCopy').onclick=function(){try{navigator.clipboard.writeText($('rCode').value).then(function(){toast('Kode tersalin')})}catch(e){}};
 $('pSolo').onclick=function(){try{localStorage.setItem('kita-solo','1')}catch(e){}view('app')};
 function out(){try{localStorage.removeItem('kita-in');localStorage.removeItem('kita-solo')}catch(e){}signOut(au).then(function(){try{localStorage.removeItem(K)}catch(e){}location.reload()})}
 $('pOut').onclick=out;$('logout').onclick=out;
