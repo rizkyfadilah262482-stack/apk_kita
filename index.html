@@ -1,8 +1,13 @@
 <!doctype html>
-<html lang="id" data-view="boot">
+<html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>try{document.documentElement.setAttribute('data-view',localStorage.getItem('kita-in')?'app':'auth')}catch(e){document.documentElement.setAttribute('data-view','auth')}</script>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js">
 <link rel="icon" href="foto.jpg">
 <link rel="apple-touch-icon" href="foto.jpg">
 <title>Kita – aplikasi untuk berdua</title>
@@ -132,6 +137,7 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
 .h-logo{width:42px;height:42px;border-radius:50%;object-fit:cover;flex:none;border:2px solid var(--card);box-shadow:0 0 0 2px var(--a)}
 .h-logo[hidden]{display:none}
+.sh{display:flex;align-items:center;gap:12px;margin-bottom:14px}.sh h2{margin:0}
 </style>
 </head>
 <body>
@@ -247,7 +253,7 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
     <button data-t="goal"><span>✨</span>Impian</button>
   </nav>
   <div class="sheet" id="sheet"><div class="box">
-    <h2>Pengaturan</h2>
+    <div class="sh"><button class="ib" id="setBack" type="button" aria-label="Kembali">←</button><h2>Pengaturan</h2></div>
     <label for="nA">Nama kamu</label><input id="nA" maxlength="20">
     <label for="nB">Nama pacarmu</label><input id="nB" maxlength="20">
     <label for="nD">Tanggal jadian</label><input type="date" id="nD">
@@ -260,11 +266,6 @@ html:not([data-view="app"]) .app>header,html:not([data-view="app"]) .app>main,ht
   </div></div>
   <div class="toast" id="toast"></div>
 </div>
-<script>
-/* Jika Firebase gagal dimuat (offline / halaman dibuka di pratinjau yang memblokir jaringan), tetap tampilkan layar login */
-setTimeout(function(){var r=document.documentElement;if(r.getAttribute('data-view')==='boot'){r.setAttribute('data-view','auth');
-var e=document.getElementById('aErr');if(e)e.textContent='Firebase tidak bisa dimuat. Buka lewat https/localhost dan periksa koneksi internet.'}},4000);
-</script>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,sendPasswordResetEmail,updateProfile,GoogleAuthProvider,signInWithPopup,signInWithRedirect,setPersistence,browserLocalPersistence,browserSessionPersistence} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
@@ -423,7 +424,7 @@ function startSync(){
 $('cIn').addEventListener('input',function(){if(cid&&Date.now()-lt>2000){lt=Date.now();beat({typ:Date.now()})}});
 
 function fmtCode(c){return c.slice(0,4)+'-'+c.slice(4)}
-function openRoom(c){cid=c;$('rCode').value=fmtCode(c);view('app');startSync()}
+function openRoom(c){cid=c;try{localStorage.setItem('kita-cid-'+uid,c)}catch(e){}$('rCode').value=fmtCode(c);view('app');startSync()}
 function msg(e){var c=(e&&e.code)||'';
   return {'auth/invalid-credential':'Email atau kata sandi salah.','auth/wrong-password':'Email atau kata sandi salah.','auth/user-not-found':'Email atau kata sandi salah.',
   'auth/email-already-in-use':'Email ini sudah terdaftar. Silakan masuk.','auth/weak-password':'Kata sandi terlalu lemah (minimal 8 karakter).','auth/invalid-email':'Format email belum benar.',
@@ -441,13 +442,13 @@ $('aForm').addEventListener('submit',async function(e){e.preventDefault();
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){err.textContent='Format email belum benar.';return}
   if(pw.length<8){err.textContent='Kata sandi minimal 8 karakter.';return}
   if(mode==='register'&&!name){err.textContent='Isi nama panggilanmu dulu.';return}
-  btn.disabled=true;
+  btn.disabled=true;btn.textContent='Memproses…';
   try{await setPersistence(au,$('aRemember').checked?browserLocalPersistence:browserSessionPersistence);
     if(mode==='register'){var cr=await createUserWithEmailAndPassword(au,email,pw);S.a=name;save2();head();
       await updateProfile(cr.user,{displayName:name});await setDoc(doc(fs,'users',cr.user.uid),{name:name},{merge:true})}
     else{await signInWithEmailAndPassword(au,email,pw)}
     $('aForm').reset();setMode('login')}
-  catch(x){err.textContent=msg(x)}finally{btn.disabled=false}});
+  catch(x){err.textContent=msg(x)}finally{btn.disabled=false;btn.textContent=mode==='login'?'Masuk':'Buat akun'}});
 $('aForgot').onclick=async function(){var err=$('aErr'),email=$('aEmail').value.trim();
   if(!ok||!email){err.textContent='Isi email dulu, lalu ketuk "Lupa kata sandi?".';return}
   try{await sendPasswordResetEmail(au,email);err.style.color='var(--ok)';err.textContent='Tautan reset dikirim ke emailmu.'}catch(x){err.textContent=msg(x)}
@@ -481,20 +482,28 @@ $('pJoin').onclick=async function(){perr('');var c=$('pCode').value.toUpperCase(
     if(mb.indexOf(uid)<0){if(mb.length>=2){perr('Ruang ini sudah penuh.');return}await updateDoc(rf,{members:arrayUnion(uid)})}
     await setDoc(doc(fs,'users',uid),{coupleId:c},{merge:true});openRoom(c)}
   catch(x){perr(msg(x))}finally{this.disabled=false}};
-$('pSolo').onclick=function(){view('app')};
-function out(){signOut(au).then(function(){try{localStorage.removeItem(K)}catch(e){}location.reload()})}
+$('pSolo').onclick=function(){try{localStorage.setItem('kita-solo','1')}catch(e){}view('app')};
+function out(){try{localStorage.removeItem('kita-in');localStorage.removeItem('kita-solo')}catch(e){}signOut(au).then(function(){try{localStorage.removeItem(K)}catch(e){}location.reload()})}
 $('pOut').onclick=out;$('logout').onclick=out;
 $('rCopy').onclick=function(){try{navigator.clipboard.writeText($('rCode').value).then(function(){toast('Kode tersalin')})}catch(e){}};
-$('rLink').onclick=function(){$('sheet').classList.remove('on');$('pDone').hidden=true;view('pair')};
+$('setBack').onclick=function(){$('sheet').classList.remove('on')};
+document.addEventListener('keydown',function(e){if(e.key==='Escape')$('sheet').classList.remove('on')});
+$('rLink').onclick=function(){$('sheet').classList.remove('on');$('pDone').hidden=true;$('pSolo').textContent='Kembali';view('pair')};
 $('setBtn').addEventListener('click',function(){$('rBox').hidden=!cid;$('rLink').hidden=!!cid});
 
 /* status login */
 if(ok){onAuthStateChanged(au,async function(u){
-  if(!u){stopAll();cid=null;uid=null;view('auth');return}
-  uid=u.uid;$('aWho').textContent='Masuk sebagai '+(u.displayName||u.email);
+  if(!u){stopAll();cid=null;uid=null;try{localStorage.removeItem('kita-in')}catch(e){}view('auth');return}
+  uid=u.uid;try{localStorage.setItem('kita-in','1')}catch(e){}
+  $('aWho').textContent='Masuk sebagai '+(u.displayName||u.email);
   if(S.a==='Aku'&&u.displayName){S.a=u.displayName;save2();head()}
-  var c=null;try{var d=await getDoc(doc(fs,'users',uid));c=d.exists()?d.data().coupleId:null}catch(e){}
-  if(c)openRoom(c);else view('pair')})}
+  var ck='kita-cid-'+uid,cached=null;try{cached=localStorage.getItem(ck)}catch(e){}
+  if(cached&&!cid)openRoom(cached);
+  var c=null;try{var d=await getDoc(doc(fs,'users',uid));c=d.exists()?d.data().coupleId:null}catch(e){c=cached}
+  try{if(c)localStorage.setItem(ck,c);else localStorage.removeItem(ck)}catch(e){}
+  if(c){if(c!==cid)openRoom(c)}
+  else if(!cid){var solo=null;try{solo=localStorage.getItem('kita-solo')}catch(e){}
+    if(solo)view('app');else{$('pSolo').textContent='Pakai sendiri dulu';view('pair')}}})}
 else{view('auth');$('aErr').textContent='Firebase belum dikonfigurasi. Isi FIREBASE_CONFIG di file ini.'}
 
 /* jurnal syukur */
